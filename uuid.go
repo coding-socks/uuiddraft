@@ -97,6 +97,8 @@ func (g *generator) nextTimestampSequence() (ts int64, seq uint16) {
 	seq = g.lastSequence
 	if ts <= g.lastTimestamp {
 		seq = (seq + 1) & 0x3fff // only 14 bts
+	} else {
+		seq = 0
 	}
 	g.lastTimestamp, g.lastSequence = ts, seq
 	return ts, seq
