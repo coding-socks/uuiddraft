@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+var (
+	gregorianEpoch  = time.Date(1582, 10, 15, 0, 0, 0, 0, time.UTC)
+	gregorianToUnix = gregorianEpoch.Unix()
+	unixToGregorian = -gregorianToUnix
+)
+
 // A UUID is a 128 bit (16 byte) Universal Unique Identifier as defined in RFC
 // 4122.
 type UUID [16]byte
@@ -39,29 +45,26 @@ func (u UUID) String() string {
 	return string(buf)
 }
 
-type generator struct {
+type generatorV6 struct {
 	rand io.Reader
 	now  func() time.Time
 
 	timeMu        sync.Mutex
 	lastTimestamp int64
-	lastSequence  uint16
+	lastSequence  int16
 }
 
-var defaultGenerator = &generator{
+var defaultGeneratorV6 = &generatorV6{
 	rand: rand.Reader,
 	now:  time.Now,
+
+	lastSequence: -1,
 }
 
-var (
-	gregorianEpoch    = time.Date(1582, 10, 15, 0, 0, 0, 0, time.UTC)
-	gregorianUnixDiff = gregorianEpoch.Unix() * -1 * int64(time.Second/100)
-)
-
-func (g *generator) NewV6() (UUID, error) {
+func (g *generatorV6) New() (UUID, error) {
 	var uuid UUID
 
-	timestamp, seq := g.nextTimestampSequence()
+	timestamp, seq := g.nextTimestampAndSequence()
 
 	timeHighMid := timestamp >> 12
 	timeHigh := uint32(timeHighMid >> 16)
@@ -86,22 +89,26 @@ func (g *generator) NewV6() (UUID, error) {
 
 // NewV6 generates a UUIDv6 using the algorithm defined in Section 4.3.4.
 func NewV6() (UUID, error) {
-	return defaultGenerator.NewV6()
+	return defaultGeneratorV6.New()
 }
 
-func (g *generator) nextTimestampSequence() (ts int64, seq uint16) {
+func (g *generatorV6) nextTimestampAndSequence() (int64, uint16) {
 	g.timeMu.Lock()
 	defer g.timeMu.Unlock()
-	ns := g.now().UnixNano()
-	ts = (ns / 100) + gregorianUnixDiff
-	seq = g.lastSequence
-	if ts <= g.lastTimestamp {
-		seq = (seq + 1) & 0x3fff // only 14 bts
-	} else {
-		seq = 0
+	ts := (g.now().UnixNano() / 100) + (unixToGregorian * 1e7)
+	seq := g.lastSequence
+	if seq == -1 {
+		b := make([]byte, 2)
+		if _, err := io.ReadFull(g.rand, b); err != nil {
+			panic(err.Error()) // rand should never fail
+		}
+		seq = int16(b[0])<<8 + int16(b[1])
+	} else if ts <= g.lastTimestamp {
+		seq = seq + 1
 	}
+	seq &= 0x3fff // only 14 bits
 	g.lastTimestamp, g.lastSequence = ts, seq
-	return ts, seq
+	return ts, uint16(seq)
 }
 
 func Must(uuid UUID, err error) UUID {
