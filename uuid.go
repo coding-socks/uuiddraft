@@ -10,9 +10,7 @@ import (
 )
 
 var (
-	gregorianEpoch  = time.Date(1582, 10, 15, 0, 0, 0, 0, time.UTC)
-	gregorianToUnix = gregorianEpoch.Unix()
-	unixToGregorian = -gregorianToUnix
+	defaultGeneratorV6 = newGeneratorV6()
 )
 
 // A UUID is a 128 bit (16 byte) Universal Unique Identifier as defined in RFC
@@ -45,6 +43,12 @@ func (u UUID) String() string {
 	return string(buf)
 }
 
+var (
+	gregorianEpoch  = time.Date(1582, 10, 15, 0, 0, 0, 0, time.UTC)
+	gregorianToUnix = gregorianEpoch.Unix()
+	unixToGregorian = -gregorianToUnix
+)
+
 type generatorV6 struct {
 	rand io.Reader
 	now  func() time.Time
@@ -54,11 +58,13 @@ type generatorV6 struct {
 	lastSequence  int16
 }
 
-var defaultGeneratorV6 = &generatorV6{
-	rand: rand.Reader,
-	now:  time.Now,
+func newGeneratorV6() *generatorV6 {
+	return &generatorV6{
+		rand: rand.Reader,
+		now:  time.Now,
 
-	lastSequence: -1,
+		lastSequence: -1,
+	}
 }
 
 func (g *generatorV6) New() (UUID, error) {

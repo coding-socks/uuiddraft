@@ -19,7 +19,7 @@ func Test_generatorV6_New(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		if got, want := id.Version(), 0b0110; got != want {
+		if got, want := id.Version(), 6; got != want {
 			t.Errorf("Version() = %v, want %v", got, want)
 		}
 		if got, want := id.Variant(), 0b10; got != want {
