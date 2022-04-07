@@ -87,7 +87,7 @@ func (g *generatorV6) New() (UUID, error) {
 	return uuid, nil
 }
 
-// NewV6 generates a UUIDv6 using the algorithm defined in Section 4.3.4.
+// NewV6 generates a UUIDv6 using the algorithm defined in Section 5.1.
 func NewV6() (UUID, error) {
 	return defaultGeneratorV6.New()
 }

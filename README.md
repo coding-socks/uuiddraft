@@ -8,7 +8,7 @@ Draft Prototype for UUIDv6 and beyond.
  
 Source: https://en.wikipedia.org/wiki/Universally_unique_identifier
 
-It is based on the 1st iteration of [draft-peabody-dispatch-new-uuid-format][draft-peabody-dispatch-new-uuid-format-01]. This document is only an [Internet-Draft](https://tools.ietf.org/html/rfc2026#section-2.2).
+It is based on the 3rd iteration of [draft-peabody-dispatch-new-uuid-format][draft-peabody-dispatch-new-uuid-format-03]. This document is only an [Internet-Draft](https://tools.ietf.org/html/rfc2026#section-2.2).
 
 The goal is to provide implementation for these documents and during the implementation provide feedback for them.
 
@@ -25,11 +25,11 @@ Stable version will be considered only if enough positive feedback is gathered t
 ### IETF Documents
 
 - [RFC4122](https://datatracker.ietf.org/doc/html/rfc4122)
-- [draft-peabody-dispatch-new-uuid-format][draft-peabody-dispatch-new-uuid-format-01]
+- [draft-peabody-dispatch-new-uuid-format][draft-peabody-dispatch-new-uuid-format-03]
 
-Huge thanks to Brad Peabody, Kyzer Davis, and other who contributed to these documents for their work. 
+Huge thanks to Brad Peabody, Kyzer Davis, and others who contributed to these documents for their work. 
 
-[draft-peabody-dispatch-new-uuid-format-01]: https://www.ietf.org/archive/id/draft-peabody-dispatch-new-uuid-format-01.html
+[draft-peabody-dispatch-new-uuid-format-03]: https://www.ietf.org/archive/id/draft-peabody-dispatch-new-uuid-format-03.html
 
 ## Inspiration
 
