@@ -76,19 +76,17 @@ func (g *generatorV6) New() (UUID, error) {
 	timeHigh := uint32(timeHighMid >> 16)
 	timeMid := uint16(timeHighMid & 0xffff)
 
-	timeLow := uint16(timestamp & 0xfff)
-	timeLow |= 0x6000
+	timeLow := uint16(timestamp & 0x0fff)
+	timeLow |= 0x6000 // version
 
 	binary.BigEndian.PutUint32(uuid[0:], timeHigh)
 	binary.BigEndian.PutUint16(uuid[4:], timeMid)
 	binary.BigEndian.PutUint16(uuid[6:], timeLow)
 	binary.BigEndian.PutUint16(uuid[8:], seq|0x8000) // concat UUID variant
 
-	buf := make([]byte, 6)
-	if _, err := io.ReadFull(g.rand, buf); err != nil {
+	if _, err := io.ReadFull(g.rand, uuid[10:]); err != nil {
 		panic(err.Error()) // rand should never fail
 	}
-	copy(uuid[10:], buf[:])
 
 	return uuid, nil
 }
@@ -115,6 +113,50 @@ func (g *generatorV6) nextTimestampAndSequence() (int64, uint16) {
 	seq &= 0x3fff // only 14 bits
 	g.lastTimestamp, g.lastSequence = ts, seq
 	return ts, uint16(seq)
+}
+
+type generatorV7 struct {
+	rand io.Reader
+	now  func() time.Time
+
+	timeMu        sync.Mutex
+	lastTimestamp int64
+	lastSequence  int16
+}
+
+func newGeneratorV7() *generatorV7 {
+	return &generatorV7{
+		rand: rand.Reader,
+		now:  time.Now,
+
+		lastSequence: -1,
+	}
+}
+
+func (g *generatorV7) New() (UUID, error) {
+	var uuid UUID
+
+	timestamp := g.now().UnixMilli()
+
+	timeHigh := uint32(timestamp >> 16)
+	timeLow := uint16(timestamp & 0xffff)
+
+	binary.BigEndian.PutUint32(uuid[0:], timeHigh)
+	binary.BigEndian.PutUint16(uuid[4:], timeLow)
+
+	if _, err := io.ReadFull(g.rand, uuid[6:]); err != nil {
+		panic(err) // rand should never fail
+	}
+
+	uuid[6] = (uuid[6] & 0x0f) | 0x70 // version
+	uuid[8] = (uuid[8] & 0x3f) | 0x80 // UUID variant
+
+	return uuid, nil
+}
+
+// NewV7 generates a UUIDv6 using the algorithm defined in Section 5.2.
+func NewV7() (UUID, error) {
+	return defaultGeneratorV6.New()
 }
 
 func Must(uuid UUID, err error) UUID {
