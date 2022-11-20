@@ -5,13 +5,17 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"time"
 )
 
 var (
-	defaultGeneratorV6 = newGeneratorV6()
+	DefaultV6Generator = NewV6Generator()
+	DefaultV7Generator = NewV7Generator()
+	DefaultV8Generator = NewV8Generator()
 )
 
 // A UUID is a 128 bit (16 byte) Universal Unique Identifier as defined in RFC
@@ -44,127 +48,8 @@ func (u UUID) String() string {
 	return string(buf)
 }
 
-var (
-	gregorianEpoch  = time.Date(1582, 10, 15, 0, 0, 0, 0, time.UTC)
-	gregorianToUnix = gregorianEpoch.Unix()
-	unixToGregorian = -gregorianToUnix
-)
-
-type generatorV6 struct {
-	rand io.Reader
-	now  func() time.Time
-
-	timeMu        sync.Mutex
-	lastTimestamp int64
-	lastSequence  int16
-}
-
-func newGeneratorV6() *generatorV6 {
-	return &generatorV6{
-		rand: rand.Reader,
-		now:  time.Now,
-
-		lastSequence: -1,
-	}
-}
-
-func (g *generatorV6) New() (UUID, error) {
-	var uuid UUID
-
-	timestamp, seq := g.nextTimestampAndSequence()
-
-	timeHighMid := timestamp >> 12
-	timeHigh := uint32(timeHighMid >> 16)
-	timeMid := uint16(timeHighMid & 0xffff)
-
-	timeLow := uint16(timestamp & 0x0fff)
-	timeLow |= 0x6000 // version
-
-	binary.BigEndian.PutUint32(uuid[0:], timeHigh)
-	binary.BigEndian.PutUint16(uuid[4:], timeMid)
-	binary.BigEndian.PutUint16(uuid[6:], timeLow)
-	binary.BigEndian.PutUint16(uuid[8:], seq|0x8000) // concat UUID variant
-
-	if _, err := io.ReadFull(g.rand, uuid[10:]); err != nil {
-		panic(err.Error()) // rand should never fail
-	}
-
-	return uuid, nil
-}
-
-// NewV6 generates a UUIDv6 using the algorithm defined in Section 5.1.
-func NewV6() (UUID, error) {
-	return defaultGeneratorV6.New()
-}
-
-func (g *generatorV6) nextTimestampAndSequence() (int64, uint16) {
-	g.timeMu.Lock()
-	defer g.timeMu.Unlock()
-	ts := (g.now().UnixNano() / 100) + (unixToGregorian * 1e7)
-	seq := g.lastSequence
-	if seq == -1 {
-		b := make([]byte, 2)
-		if _, err := io.ReadFull(g.rand, b); err != nil {
-			panic(err.Error()) // rand should never fail
-		}
-		seq = int16(b[0])<<8 + int16(b[1])
-	} else if ts <= g.lastTimestamp {
-		seq = seq + 1
-	}
-	seq &= 0x3fff // only 14 bits
-	g.lastTimestamp, g.lastSequence = ts, seq
-	return ts, uint16(seq)
-}
-
-type generatorV7 struct {
-	rand io.Reader
-	now  func() time.Time
-
-	timeMu        sync.Mutex
-	lastTimestamp int64
-	lastSequence  int16
-}
-
-func newGeneratorV7() *generatorV7 {
-	return &generatorV7{
-		rand: rand.Reader,
-		now:  time.Now,
-
-		lastSequence: -1,
-	}
-}
-
-func (g *generatorV7) New() (UUID, error) {
-	var uuid UUID
-
-	timestamp := g.now().UnixMilli()
-
-	timeHigh := uint32(timestamp >> 16)
-	timeLow := uint16(timestamp & 0xffff)
-
-	binary.BigEndian.PutUint32(uuid[0:], timeHigh)
-	binary.BigEndian.PutUint16(uuid[4:], timeLow)
-
-	if _, err := io.ReadFull(g.rand, uuid[6:]); err != nil {
-		panic(err) // rand should never fail
-	}
-
-	uuid[6] = (uuid[6] & 0x0f) | 0x70 // version
-	uuid[8] = (uuid[8] & 0x3f) | 0x80 // UUID variant
-
-	return uuid, nil
-}
-
-// NewV7 generates a UUIDv6 using the algorithm defined in Section 5.2.
-func NewV7() (UUID, error) {
-	return defaultGeneratorV6.New()
-}
-
-func Must(uuid UUID, err error) UUID {
-	if err != nil {
-		panic(err)
-	}
-	return uuid
+func Equal(a, b UUID) bool {
+	return bytes.Equal(a[:], b[:])
 }
 
 var (
@@ -178,4 +63,180 @@ func IsNil(uuid UUID) bool {
 
 func IsMax(uuid UUID) bool {
 	return bytes.Equal(uuid[:], maxUUID[:])
+}
+
+// clockSequence is a 14 bits counter
+type clockSequence uint16
+
+func randomClockSequence() clockSequence {
+	b := make([]byte, 2)
+	if _, err := rand.Read(b); err != nil {
+		panic(err) // theoretically should never happen
+	}
+	return ((clockSequence(b[0]) << 8) | clockSequence(b[1])) & clockSequence(0xdfff)
+}
+
+func (cs clockSequence) Incr() clockSequence {
+	return (cs + 1) & clockSequence(0xdfff)
+}
+
+var (
+	gregEpoch = time.Date(1582, time.October, 15, 0, 0, 0, 0, time.UTC)
+)
+
+type V6Generator struct {
+	now  func() time.Time
+	rand io.Reader
+
+	node     []byte
+	cs       clockSequence
+	mu       sync.Mutex
+	prevTime time.Time
+}
+
+func NewV6Generator() *V6Generator {
+	return &V6Generator{
+		now:  time.Now,
+		cs:   randomClockSequence(),
+		rand: rand.Reader,
+	}
+}
+
+// gregFormat returns a 60-bit timestamp represented by UTC as
+// a count of 100- nanosecond intervals since 00:00:00.00, 15 October 1582.
+func gregFormat(t time.Time) int64 {
+	return (t.Unix()-gregEpoch.Unix())*1e7 + int64(t.Nanosecond()-gregEpoch.Nanosecond())/1e2
+}
+
+// Generate generates a UUID Version 6 based on
+// https://www.ietf.org/archive/id/draft-ietf-uuidrev-rfc4122bis-00.html#name-uuid-version-6
+func (g *V6Generator) Read(id *UUID) error {
+	g.mu.Lock()
+	if len(g.node) == 0 {
+		// init arbitrary node ID when it is not set.
+		r := make([]byte, 6)
+		if _, err := g.rand.Read(r); err != nil {
+			g.mu.Unlock()
+			return fmt.Errorf("could not initialise node ID: %w", err) // fail fast
+		}
+		g.node = r
+	}
+	n := g.now()
+	if n.Before(g.prevTime) {
+		g.cs = g.cs.Incr()
+	}
+	g.prevTime = n
+	cs := g.cs
+	g.mu.Unlock()
+
+	t := gregFormat(n)
+	binary.BigEndian.PutUint32(id[:4], uint32(t>>28))  // time_high
+	binary.BigEndian.PutUint16(id[4:6], uint16(t>>12)) // time_mid
+	binary.BigEndian.PutUint16(id[6:8], uint16(t))     // time_low_and_version
+	binary.BigEndian.PutUint16(id[8:10], uint16(cs))   // clk_seq_hi_res + clk_seq_low
+	copy(id[10:], g.node)                              // node 0-5
+	id[6] = (id[6] & 0x0f) | 0x60                      // ver
+	id[8] = (id[8] & 0x3f) | 0x80                      // var
+	return nil
+}
+
+// V6 reads a UUID from DefaultV6Generator.
+func V6() (UUID, error) {
+	var id UUID
+	if err := DefaultV6Generator.Read(&id); err != nil {
+		return nilUUID, err
+	}
+	return id, nil
+}
+
+type V7Generator struct {
+	now  func() time.Time
+	rand io.Reader
+}
+
+func NewV7Generator() *V7Generator {
+	return &V7Generator{
+		now:  time.Now,
+		rand: rand.Reader,
+	}
+}
+
+// Generate generates a UUID Version 7 based on
+// https://www.ietf.org/archive/id/draft-ietf-uuidrev-rfc4122bis-00.html#name-uuid-version-7
+func (g V7Generator) Read(id *UUID) error {
+	r := make([]byte, 10)
+	if _, err := g.rand.Read(r); err != nil {
+		return err // fail fast
+	}
+	um := g.now().UnixMilli()
+	binary.BigEndian.PutUint32(id[:4], uint32(um>>16)) // unix_ts_ms
+	binary.BigEndian.PutUint16(id[4:6], uint16(um))    // unix_ts_ms
+	copy(id[6:], r)                                    // rand
+	id[6] = (id[6] & 0x0f) | 0x70                      // ver
+	id[8] = (id[8] & 0x3f) | 0x80                      // var
+	return nil
+}
+
+// V7 reads a UUID from DefaultV7Generator.
+func V7() (UUID, error) {
+	var id UUID
+	if err := DefaultV7Generator.Read(&id); err != nil {
+		return nilUUID, err
+	}
+	return id, nil
+}
+
+type V8Generator struct {
+	r io.Reader
+}
+
+func NewV8Generator() *V8Generator {
+	return &V8Generator{r: rand.Reader}
+}
+
+// Generate generates a UUID Version 8 based on
+// https://www.ietf.org/archive/id/draft-ietf-uuidrev-rfc4122bis-00.html#name-uuid-version-8.
+func (g V8Generator) Read(id *UUID) error {
+	b := make([]byte, 16)
+	if _, err := g.r.Read(b); err != nil {
+		return err
+	}
+	copy(id[:], b)
+	id[6] = (id[6] & 0x0f) | 0x80 // ver
+	id[8] = (id[8] & 0x3f) | 0x80 // var
+	return nil
+}
+
+// V8 reads a UUID from DefaultV8Generator.
+func V8() (UUID, error) {
+	var id UUID
+	if err := DefaultV8Generator.Read(&id); err != nil {
+		return nilUUID, err
+	}
+	return id, nil
+}
+
+func Must(uuid UUID, err error) UUID {
+	if err != nil {
+		panic(err)
+	}
+	return uuid
+}
+
+var ErrInvalidUUID = errors.New("invalid UUID")
+
+// Parse parses the "hex-and-dash" string representation of a UUID.
+//
+// Format: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+func Parse(raw string) (UUID, error) {
+	if len(raw) != 36 {
+		return nilUUID, ErrInvalidUUID
+	}
+	if raw[8] != '-' && raw[13] != '-' && raw[18] != '-' && raw[23] != '-' {
+		return nilUUID, ErrInvalidUUID
+	}
+	src := raw[:8] + raw[9:13] + raw[14:18] + raw[19:23] + raw[24:]
+	id := UUID{}
+	_, err := hex.Decode(id[:], []byte(src))
+	return id, err
 }

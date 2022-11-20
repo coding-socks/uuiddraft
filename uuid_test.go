@@ -2,201 +2,12 @@ package uuiddraft
 
 import (
 	"bytes"
-	"crypto/rand"
-	"regexp"
+	"encoding/binary"
+	"encoding/hex"
+	"fmt"
 	"testing"
 	"time"
 )
-
-var vectorZone = time.FixedZone("GMT-5", -5*60*60)
-
-func Test_generatorV6_New(t *testing.T) {
-	t.Run("structure", func(t *testing.T) {
-		g := generatorV6{
-			rand: rand.Reader,
-			now:  time.Now,
-		}
-		id, err := g.New()
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		if got, want := id.Version(), 6; got != want {
-			t.Errorf("Version() = %v, want %v", got, want)
-		}
-		if got, want := id.Variant(), 0b10; got != want {
-			t.Errorf("Variant() = %b, want %b", got, want)
-		}
-		if got, want := id.String(), `(?i)[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}`; !regexp.MustCompile(want).MatchString(got) {
-			t.Errorf("String() = %v, want to match %v", got, want)
-		}
-	})
-	t.Run("vectors", func(t *testing.T) {
-		g := generatorV6{
-			rand: bytes.NewReader([]byte{
-				0xf3, 0xc8, // seq
-				0x9e, 0x6b, 0xde, 0xce, 0xd8, 0x46, // node
-			}),
-			now: func() time.Time {
-				return time.Date(2022, 2, 22, 14, 22, 22, 0, vectorZone)
-			},
-			lastSequence: -1,
-		}
-		id, err := g.New()
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		if got, want := id.String(), "1ec9414c-232a-6b00-b3c8-9e6bdeced846"; got != want {
-			t.Errorf("String() = %v, want %v", got, want)
-		}
-	})
-	t.Run("segment", func(t *testing.T) {
-		times := []time.Time{
-			time.Date(2022, 2, 22, 14, 22, 22, 0, vectorZone),
-			time.Date(2022, 2, 22, 14, 22, 22, 50, vectorZone),
-			time.Date(2022, 2, 22, 14, 22, 22, 100, vectorZone),
-		}
-		g := generatorV6{
-			rand: bytes.NewReader([]byte{
-				0x11, 0x11, // seq
-				0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-				0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
-				0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
-			}),
-			now: func() time.Time {
-				var x time.Time
-				x, times = times[0], times[1:]
-				return x
-			},
-			lastSequence: -1,
-		}
-		tests := []string{
-			"1ec9414c-232a-6b00-9111-010101010101",
-			"1ec9414c-232a-6b00-9112-020202020202",
-			"1ec9414c-232a-6b01-9112-030303030303",
-		}
-		for i := range tests {
-			id, err := g.New()
-			if err != nil {
-				t.Error(err)
-				return
-			}
-			if got, want := id.String(), tests[i]; got != want {
-				t.Errorf("String() = %v, want %v", got, want)
-			}
-		}
-	})
-}
-
-func Test_generatorV7_New(t *testing.T) {
-	t.Run("structure", func(t *testing.T) {
-		g := generatorV7{
-			rand: rand.Reader,
-			now:  time.Now,
-		}
-		id, err := g.New()
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		if got, want := id.Version(), 7; got != want {
-			t.Errorf("Version() = %v, want %v", got, want)
-		}
-		if got, want := id.Variant(), 0b10; got != want {
-			t.Errorf("Variant() = %b, want %b", got, want)
-		}
-		if got, want := id.String(), `(?i)[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}`; !regexp.MustCompile(want).MatchString(got) {
-			t.Errorf("String() = %v, want to match %v", got, want)
-		}
-	})
-	t.Run("vectors", func(t *testing.T) {
-		g := generatorV7{
-			rand: bytes.NewReader([]byte{
-				0xfc, 0xc3, 0x18, 0xc4, 0xdc, 0x0c, 0x0c, 0x07, 0x39, 0x8f,
-			}),
-			now: func() time.Time {
-				return time.Date(2022, 2, 22, 14, 22, 22, 0, vectorZone)
-			},
-			lastSequence: -1,
-		}
-		id, err := g.New()
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		if got, want := id.String(), "017f22e2-79b0-7cc3-98c4-dc0c0c07398f"; got != want {
-			t.Errorf("String() = %v, want %v", got, want)
-		}
-	})
-	t.Run("segment", func(t *testing.T) {
-		times := []time.Time{
-			time.Date(2022, 2, 22, 14, 22, 22, 0, vectorZone),
-			time.Date(2022, 2, 22, 14, 22, 22, 50, vectorZone),
-			time.Date(2022, 2, 22, 14, 22, 22, 100, vectorZone),
-		}
-		g := generatorV7{
-			rand: bytes.NewReader([]byte{
-				0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-				0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
-				0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03, 0x03,
-			}),
-			now: func() time.Time {
-				var x time.Time
-				x, times = times[0], times[1:]
-				return x
-			},
-			lastSequence: -1,
-		}
-		tests := []string{
-			"017f22e2-79b0-7101-8101-010101010101",
-			"017f22e2-79b0-7202-8202-020202020202",
-			"017f22e2-79b0-7303-8303-030303030303",
-		}
-		for i := range tests {
-			id, err := g.New()
-			if err != nil {
-				t.Error(err)
-				return
-			}
-			if got, want := id.String(), tests[i]; got != want {
-				t.Errorf("String() = %v, want %v", got, want)
-			}
-		}
-	})
-}
-
-func TestIsNil(t *testing.T) {
-	tests := []struct {
-		name string
-		uuid UUID
-		want bool
-	}{
-		{
-			uuid: UUID{},
-			want: true,
-		},
-		{
-			uuid: UUID{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-			want: true,
-		},
-		{
-			uuid: UUID{0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f},
-			want: false,
-		},
-		{
-			uuid: UUID{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
-			want: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := IsNil(tt.uuid); got != tt.want {
-				t.Errorf("IsMax() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
 
 func TestIsMax(t *testing.T) {
 	tests := []struct {
@@ -227,5 +38,112 @@ func TestIsMax(t *testing.T) {
 				t.Errorf("IsMax() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestV6Generator_Read(t *testing.T) {
+	// https://www.ietf.org/archive/id/draft-ietf-uuidrev-rfc4122bis-00.html#name-example-of-a-uuidv6-value
+	// -----------------------------------------------
+	// field                 bits    value
+	// -----------------------------------------------
+	// time_high              32     0x1EC9414C
+	// time_mid               16     0x232A
+	// time_low_and_version   16     0x6B00
+	// clk_seq_hi_res          8     0xB3
+	// clock_seq_low           8     0xC8
+	// node                   48     0x9E6BDECED846
+	// -----------------------------------------------
+	// total                 128
+	// -----------------------------------------------
+	// final_hex: 1EC9414C-232A-6B00-B3C8-9E6BDECED846
+	fmt.Println()
+	g := V6Generator{
+		now: func() time.Time {
+			b, _ := hex.DecodeString("01EC9414C232AB00")
+			ns := binary.BigEndian.Uint64(b) * 100
+			return time.Unix(0, int64(ns)+gregEpoch.UnixNano())
+		},
+		cs:   0x33c8,
+		rand: bytes.NewReader([]byte{0x9e, 0x6b, 0xde, 0xce, 0xd8, 0x46}),
+	}
+	var got UUID
+	err := g.Read(&got)
+	if (err != nil) != false {
+		t.Errorf("Read() error = %v", err)
+		return
+	}
+	want := Must(Parse("1EC9414C-232A-6B00-B3C8-9E6BDECED846"))
+	if !Equal(got, want) {
+		t.Errorf("Read() got = %v, want %v", got, want)
+	}
+}
+
+func TestV7Generator_Read(t *testing.T) {
+	// https://www.ietf.org/archive/id/draft-ietf-uuidrev-rfc4122bis-00.html#name-example-of-a-uuidv7-value
+	// -------------------------------
+	// field      bits    value
+	// -------------------------------
+	// unix_ts_ms   48    0x17F22E279B0
+	// ver           4    0x7
+	// rand_a       12    0xCC3
+	// var           2    b10
+	// rand_b       62    b01, 0x8C4DC0C0C07398F
+	// -------------------------------
+	// total       128
+	// -------------------------------
+	// final: 017F22E2-79B0-7CC3-98C4-DC0C0C07398F
+	fmt.Println()
+	g := V7Generator{
+		now: func() time.Time {
+			return time.UnixMilli(1645557742000)
+		},
+		rand: bytes.NewReader([]byte{
+			0x0c, 0xc3,
+			0x18, 0xc4, 0xdc, 0x0c, 0x0c, 0x07, 0x39, 0x8f,
+		}),
+	}
+	var got UUID
+	err := g.Read(&got)
+	if (err != nil) != false {
+		t.Errorf("Read() error = %v", err)
+		return
+	}
+	want := Must(Parse("017F22E2-79B0-7CC3-98C4-DC0C0C07398F"))
+	if !Equal(got, want) {
+		t.Errorf("Read() got = %v, want %v", got, want)
+	}
+}
+
+func TestV8Generator_Read(t *testing.T) {
+	// https://www.ietf.org/archive/id/draft-ietf-uuidrev-rfc4122bis-00.html#name-example-of-a-uuidv8-value
+	// -------------------------------
+	// field      bits    value
+	// -------------------------------
+	// custom_a     48    0x320C3D4DCC00
+	// ver           4    0x8
+	// custom_b     12    0x75B
+	// var           2    b10
+	// custom_c     62    b00, 0xEC932D5F69181C0
+	// -------------------------------
+	// total       128
+	// -------------------------------
+	// final: 320C3D4D-CC00-875B-8EC9-32D5F69181C0
+	fmt.Println()
+	g := V8Generator{
+		r: bytes.NewReader([]byte{
+			0x32, 0x0c, 0x3d, 0x4d, 0xcc, 0x00,
+			0x07, 0x5b,
+			0x0e, 0xc9, 0x32, 0xd5, 0xf6, 0x91, 0x81, 0xc0,
+		}),
+	}
+	var got UUID
+	err := g.Read(&got)
+	if (err != nil) != false {
+		t.Errorf("Read() error = %v", err)
+		return
+	}
+	want := Must(Parse("320C3D4D-CC00-875B-8EC9-32D5F69181C0"))
+	if !Equal(got, want) {
+		t.Errorf("Read() got = %v, want %v", got, want)
 	}
 }
