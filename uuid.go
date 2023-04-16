@@ -58,11 +58,11 @@ var (
 )
 
 func IsNil(uuid UUID) bool {
-	return bytes.Equal(uuid[:], nilUUID[:])
+	return uuid == nilUUID
 }
 
 func IsMax(uuid UUID) bool {
-	return bytes.Equal(uuid[:], maxUUID[:])
+	return uuid == maxUUID
 }
 
 // clockSequence is a 14 bits counter
@@ -144,7 +144,7 @@ func (g *V6Generator) Read(id *UUID) error {
 func V6() (UUID, error) {
 	var id UUID
 	if err := DefaultV6Generator.Read(&id); err != nil {
-		return nilUUID, err
+		return UUID{}, err
 	}
 	return id, nil
 }
@@ -181,7 +181,7 @@ func (g V7Generator) Read(id *UUID) error {
 func V7() (UUID, error) {
 	var id UUID
 	if err := DefaultV7Generator.Read(&id); err != nil {
-		return nilUUID, err
+		return UUID{}, err
 	}
 	return id, nil
 }
@@ -211,7 +211,7 @@ func (g V8Generator) Read(id *UUID) error {
 func V8() (UUID, error) {
 	var id UUID
 	if err := DefaultV8Generator.Read(&id); err != nil {
-		return nilUUID, err
+		return UUID{}, err
 	}
 	return id, nil
 }
@@ -230,10 +230,10 @@ var ErrInvalidUUID = errors.New("invalid UUID")
 // Format: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
 func Parse(raw string) (UUID, error) {
 	if len(raw) != 36 {
-		return nilUUID, ErrInvalidUUID
+		return UUID{}, ErrInvalidUUID
 	}
 	if raw[8] != '-' && raw[13] != '-' && raw[18] != '-' && raw[23] != '-' {
-		return nilUUID, ErrInvalidUUID
+		return UUID{}, ErrInvalidUUID
 	}
 	src := raw[:8] + raw[9:13] + raw[14:18] + raw[19:23] + raw[24:]
 	id := UUID{}
